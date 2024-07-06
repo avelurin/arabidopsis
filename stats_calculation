@@ -1,0 +1,269 @@
+import pandas as pd
+import numpy as np
+from scipy import stats
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import shapiro
+
+# Загрузка данных
+data = pd.read_csv('/content/arabidopsis_1.tsv', delimiter='\t')
+
+# Преобразование строковых значений в числовые типы данных
+data['area_day_1'] = data['area_day_1'].str.replace(',', '.').astype(float)
+data['area_day_2'] = data['area_day_2'].str.replace(',', '.').astype(float)
+data['area_day_3'] = data['area_day_3'].str.replace(',', '.').astype(float)
+
+# Создание DataFrame для анализа
+data_main = data[['group', 'area_day_1', 'area_day_2', 'area_day_3']]
+
+# Функция для вычисления описательных статистик
+def descriptive_stats(df, group_col, value_col):
+    grouped = df.groupby(group_col)[value_col]
+    mean = grouped.mean()
+    std = grouped.std()
+    median = grouped.median()
+    iqr = grouped.quantile(0.75) - grouped.quantile(0.25)
+
+    stats_df = pd.DataFrame({
+        'mean': mean,
+        'std': std,
+        'median': median,
+        'iqr': iqr
+    })
+    return stats_df
+
+# Вычисление описательных статистик для каждого дня
+stats_day_1 = descriptive_stats(data_main, 'group', 'area_day_1')
+stats_day_2 = descriptive_stats(data_main, 'group', 'area_day_2')
+stats_day_3 = descriptive_stats(data_main, 'group', 'area_day_3')
+
+# Вывод результатов
+print("Descriptive Statistics for Day 1:")
+print(stats_day_1)
+print("\nDescriptive Statistics for Day 2:")
+print(stats_day_2)
+print("\nDescriptive Statistics for Day 3:")
+print(stats_day_3)
+
+# Функция для проверки нормальности распределения
+def check_normality(df, group_col, value_col):
+    normality_results = {}
+    for group, values in df.groupby(group_col)[value_col]:
+        if len(values) >= 3:  # Проверка на количество данных в группе
+            stat, p_value = shapiro(values)
+            normality_results[group] = p_value
+        else:
+            normality_results[group] = np.nan  # Если данных недостаточно, возвращаем NaN
+    return normality_results
+
+# Проверка нормальности для каждого дня
+normality_day_1 = check_normality(data_main, 'group', 'area_day_1')
+normality_day_2 = check_normality(data_main, 'group', 'area_day_2')
+normality_day_3 = check_normality(data_main, 'group', 'area_day_3')
+
+# Интерпретация результатов проверки нормальности
+def interpret_normality(normality_results):
+    interpreted_results = {}
+    for group, p_value in normality_results.items():
+        if np.isnan(p_value):
+            interpreted_results[group] = "Insufficient data"
+        elif p_value > 0.05:
+            interpreted_results[group] = "Normal distribution"
+        else:
+            interpreted_results[group] = "Non-normal distribution"
+    return interpreted_results
+
+# Интерпретация результатов для каждого дня
+interpreted_normality_day_1 = interpret_normality(normality_day_1)
+interpreted_normality_day_2 = interpret_normality(normality_day_2)
+interpreted_normality_day_3 = interpret_normality(normality_day_3)
+
+# Вывод интерпретированных результатов
+print("Interpreted Normality Test Results for Day 1:")
+print(interpreted_normality_day_1)
+print("\nInterpreted Normality Test Results for Day 2:")
+print(interpreted_normality_day_2)
+print("\nInterpreted Normality Test Results for Day 3:")
+print(interpreted_normality_day_3)
+
+# Функция для удаления выбросов
+def remove_outliers(df, group_col, value_col):
+    cleaned_data = pd.DataFrame()
+    outliers = pd.DataFrame()
+    for group, group_data in df.groupby(group_col):
+        Q1 = group_data[value_col].quantile(0.25)
+        Q3 = group_data[value_col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        group_cleaned = group_data[(group_data[value_col] >= lower_bound) & (group_data[value_col] <= upper_bound)]
+        group_outliers = group_data[(group_data[value_col] < lower_bound) | (group_data[value_col] > upper_bound)]
+        cleaned_data = pd.concat([cleaned_data, group_cleaned])
+        outliers = pd.concat([outliers, group_outliers])
+    return cleaned_data, outliers
+
+# Удаление выбросов для каждого дня
+cleaned_data_day_1, outliers_day_1 = remove_outliers(data_main, 'group', 'area_day_1')
+cleaned_data_day_2, outliers_day_2 = remove_outliers(data_main, 'group', 'area_day_2')
+cleaned_data_day_3, outliers_day_3 = remove_outliers(data_main, 'group', 'area_day_3')
+
+# Проверка размеров групп после удаления выбросов
+print("Group sizes after outlier removal for Day 1:")
+print(cleaned_data_day_1.groupby('group').size())
+print("\nGroup sizes after outlier removal for Day 2:")
+print(cleaned_data_day_2.groupby('group').size())
+print("\nGroup sizes after outlier removal for Day 3:")
+print(cleaned_data_day_3.groupby('group').size())
+
+# Повторное вычисление описательных статистик после удаления выбросов
+cleaned_data_day_1_stats = descriptive_stats(cleaned_data_day_1, 'group', 'area_day_1')
+cleaned_data_day_2_stats = descriptive_stats(cleaned_data_day_2, 'group', 'area_day_2')
+cleaned_data_day_3_stats = descriptive_stats(cleaned_data_day_3, 'group', 'area_day_3')
+
+# Вывод статистик после удаления выбросов
+print("Descriptive Statistics for Day 1 (Cleaned):")
+print(cleaned_data_day_1_stats)
+print("\nDescriptive Statistics for Day 2 (Cleaned):")
+print(cleaned_data_day_2_stats)
+print("\nDescriptive Statistics for Day 3 (Cleaned):")
+print(cleaned_data_day_3_stats)
+
+# Повторная проверка нормальности для каждого дня после удаления выбросов
+normality_day_1_cleaned = check_normality(cleaned_data_day_1, 'group', 'area_day_1')
+normality_day_2_cleaned = check_normality(cleaned_data_day_2, 'group', 'area_day_2')
+normality_day_3_cleaned = check_normality(cleaned_data_day_3, 'group', 'area_day_3')
+
+# Интерпретация результатов после удаления выбросов
+interpreted_normality_day_1_cleaned = interpret_normality(normality_day_1_cleaned)
+interpreted_normality_day_2_cleaned = interpret_normality(normality_day_2_cleaned)
+interpreted_normality_day_3_cleaned = interpret_normality(normality_day_3_cleaned)
+
+# Вывод результатов после удаления выбросов
+print("Interpreted Normality Test Results for Day 1 (Cleaned):")
+print(interpreted_normality_day_1_cleaned)
+print("\nInterpreted Normality Test Results for Day 2 (Cleaned):")
+print(interpreted_normality_day_2_cleaned)
+print("\nInterpreted Normality Test Results for Day 3 (Cleaned):")
+print(interpreted_normality_day_3_cleaned)
+
+# Визуализация выбросов с использованием коробчатых диаграмм
+def plot_outliers(df, value_col, title):
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(x='group', y=value_col, data=df)
+    plt.title(title)
+    plt.show()
+
+plot_outliers(data_main, 'area_day_1', 'Outliers for Day 1')
+plot_outliers(data_main, 'area_day_2', 'Outliers for Day 2')
+plot_outliers(data_main, 'area_day_3', 'Outliers for Day 3')
+
+# Функция для проведения теста Левена
+def run_levenes_test(data, group_col, value_col):
+    grouped_data = data.groupby(group_col)[value_col].apply(list)
+    return stats.levene(*grouped_data)
+
+# Функция для проведения стандартной ANOVA
+def run_anova(data, group_col, value_col, day):
+    model = ols(f'{value_col} ~ C({group_col})', data=data).fit()
+    anova_table = sm.stats.anova_lm(model, typ=2)
+    print(f"ANOVA Results for {day}:")
+    print(anova_table)
+    return model
+
+# Функция для проведения Welch's ANOVA
+def run_welchs_anova(data, group_col, value_col, day):
+    model = ols(f'{value_col} ~ C({group_col})', data=data).fit()
+    welchs_anova_table = sm.stats.anova_lm(model, typ=2, robust='hc3')
+    print(f"Welch's ANOVA Results for {day}:")
+    print(welchs_anova_table)
+    return model
+
+# Функция для проведения теста Тьюки
+def run_tukeyhsd(data, group_col, value_col, day):
+    tukey = pairwise_tukeyhsd(endog=data[value_col], groups=data[group_col], alpha=0.05)
+    print(f"Tukey's HSD Test Results for {day}:")
+    print(tukey.summary())
+
+# Функция для добавления значимых различий на график
+def add_significance_markers(ax, data, pairs):
+    y_lims = ax.get_ylim()
+    y_gap = (y_lims[1] - y_lims[0]) * 0.02  # 2% от диапазона для отступов
+    y_top = y_lims[1] + y_gap * 4  # Корректируемый фактор на основе данных
+    
+    for pair in pairs:
+        group1, group2 = pair
+        group1_data = data[data['group'] == int(group1)]
+        group2_data = data[data['group'] == int(group2)]
+        
+        x1, x2 = int(group1) - 1, int(group2) - 1  # номера групп для x-координат
+        y, h, col = y_top, y_gap, 'k'
+        
+        ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c=col)
+        ax.text((x1+x2)*.5, y+h, "*", ha='center', va='bottom', color=col)
+        
+        y_top += y_gap * 3  # Корректировка отступа для следующей линии
+
+    ax.set_ylim(y_lims[0], y_top)  # Корректировка y-лимита для отображения маркеров
+
+# Основной анализ
+def main():
+    # Используем существующие переменные для очищенных данных
+    cleaned_data = {
+        'day_1': cleaned_data_day_1,
+        'day_2': cleaned_data_day_2,
+        'day_3': cleaned_data_day_3
+    }
+
+    significant_pairs = {
+        'day_1': [('1', '3'), ('2', '5'), ('2', '8'), ('3', '5'), ('3', '8')],
+        'day_2': [('3', '9')],
+        'day_3': [('1', '9'), ('2', '6'), ('3', '9'), ('4', '6'), ('5', '6'), ('6', '9'), ('7', '9'), ('9', '10')]
+    }
+
+    for day, data in cleaned_data.items():
+        value_col = f'area_{day}'
+        
+        # Проверка наличия столбца
+        if value_col not in data.columns:
+            print(f"Column '{value_col}' not found in data for {day}. Available columns: {data.columns}")
+            continue
+        
+        # Тест Левена на однородность дисперсий
+        levene_stat, levene_p = run_levenes_test(data, 'group', value_col)
+        print(f"{day.capitalize()} Levene's Test p-value: {levene_p}")
+        
+        # Проведение ANOVA в зависимости от результатов теста Левена
+        if levene_p > 0.05:
+            model = run_anova(data, 'group', value_col, day)
+        else:
+            model = run_welchs_anova(data, 'group', value_col, day)
+        
+        # Тест Тьюки
+        run_tukeyhsd(data, 'group', value_col, day)
+        
+        # Вывод средних значений и стандартного отклонения
+        summary_table = data.groupby('group')[value_col].agg(['mean', 'std']).reset_index()
+        print(f"Summary Statistics for {day.capitalize()}:\n", summary_table)
+        print("\n")
+        
+        # Визуализация
+        plt.figure(figsize=(10, 6))
+        sns.barplot(x='group', y=value_col, data=data, ci='sd', errorbar='sd')
+        plt.title(f'Group Means and Standard Deviations for {day.capitalize()}')
+        plt.show()
+        
+        # Создание графиков для значимых различий
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(x='group', y=value_col, data=data)
+        sns.stripplot(x='group', y=value_col, data=data, color='0.3', size=4)
+        add_significance_markers(plt.gca(), data, significant_pairs[day])
+        plt.title(f'Results for {day.capitalize()}')
+        plt.xlabel('Group')
+        plt.ylabel('Area')
+        plt.show()
+
+if __name__ == "__main__":
+    main()
